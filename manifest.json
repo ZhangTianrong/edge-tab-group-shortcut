@@ -1,0 +1,32 @@
+{
+  "manifest_version": 3,
+  "name": "TabGroup Keyboard Shortcuts",
+  "version": "1.0",
+  "description": "Keyboard shortcuts for managing Chrome/Edge tab groups - close group or keep only the hovered group",
+  "permissions": [
+    "tabs",
+    "tabGroups",
+    "nativeMessaging"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "icons": {
+    "48": "icon48.png",
+    "128": "icon128.png"
+  },
+  "commands": {
+    "close-group-tabs": {
+      "suggested_key": {
+        "default": "Alt+Shift+W"
+      },
+      "description": "Close all tabs in hovered group"
+    },
+    "close-other-groups": {
+      "suggested_key": {
+        "default": "Alt+Shift+Q"
+      },
+      "description": "Close all groups except hovered group"
+    }
+  }
+}
