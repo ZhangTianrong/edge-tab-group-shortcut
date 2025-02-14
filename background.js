@@ -25,10 +25,10 @@ function connectNativeHost() {
         });
         
         port = chrome.runtime.connectNative('com.tabgroup.shortcut');
-        console.log('Port created:', port);
+        console.log('Port created');
         
         // Log port details
-        console.log('Port details:', {
+        console.debug('Port details:', {
             name: port.name,
             connected: port.connected
         });
@@ -71,7 +71,7 @@ async function updateTabGroups() {
     try {
         const [currentTab] = await chrome.tabs.query({ active: true, currentWindow: true });
         if (!currentTab) {
-            console.log('No active tab found');
+            console.debug('No active tab found');
             return;
         }
         
@@ -99,7 +99,7 @@ async function updateTabGroups() {
         // Update timestamp
         lastGroupUpdate = Date.now();
         
-        console.log('Tab groups updated (sorted by position):', orderedGroups);
+        console.debug('Tab groups updated (sorted by position):', orderedGroups);
     } catch (error) {
         console.error('Error updating tab groups:', error);
     }
@@ -114,9 +114,13 @@ function handleHoverResult(message) {
     const arrayIndex = index - 1;
     
     // Update hovered group ID
-    if (index === 0 || arrayIndex >= orderedGroups.length) {
+    if (index === 0) {
         hoveredGroupId = null;
-    } else {
+    } else if ( arrayIndex >= orderedGroups.length) {
+        hoveredGroupId = null;
+        console.error('Invalid group index:', index);
+    }
+    else {
         hoveredGroupId = orderedGroups[arrayIndex].id;
     }
     
@@ -208,11 +212,11 @@ chrome.commands.onCommand.addListener(async (command) => {
     console.log(`Received command: ${command}`);
     
     try {
-        // Check which group is being hovered
-        const result = await checkHoveredGroup();
-        
         // Update groups state to ensure it's fresh
         await updateTabGroups();
+
+        // Check which group is being hovered
+        const result = await checkHoveredGroup();
         
         // Only proceed if we have a hovered group
         if (!hoveredGroupId) {
@@ -235,42 +239,18 @@ chrome.commands.onCommand.addListener(async (command) => {
 
 // Listen for tab group changes
 chrome.tabGroups.onCreated.addListener((group) => {
-    console.log('Tab group created:', group);
+    console.debug('Tab group created:', group);
     updateTabGroups();
 });
 
 chrome.tabGroups.onUpdated.addListener((group) => {
-    console.log('Tab group updated:', group);
+    console.debug('Tab group updated:', group);
     updateTabGroups();
 });
 
 chrome.tabGroups.onRemoved.addListener((group) => {
-    console.log('Tab group removed:', group);
+    console.debug('Tab group removed:', group);
     updateTabGroups();
-});
-
-// Listen for tab changes that might affect groups
-chrome.tabs.onAttached.addListener(() => {
-    console.log('Tab attached to window');
-    updateTabGroups();
-});
-
-chrome.tabs.onDetached.addListener(() => {
-    console.log('Tab detached from window');
-    updateTabGroups();
-});
-
-chrome.tabs.onMoved.addListener(() => {
-    console.log('Tab moved');
-    updateTabGroups();
-});
-
-// Listen for tab group membership changes
-chrome.tabs.onUpdated.addListener((tabId, changeInfo) => {
-    if (changeInfo.groupId !== undefined) {
-        console.log('Tab group membership changed');
-        updateTabGroups();
-    }
 });
 
 // Initialize native messaging connection
