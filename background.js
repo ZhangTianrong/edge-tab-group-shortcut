@@ -216,7 +216,10 @@ chrome.commands.onCommand.addListener(async (command) => {
         await updateTabGroups();
 
         // Check which group is being hovered
+        const start = Date.now();
         const result = await checkHoveredGroup();
+        const end = Date.now();
+        console.log(`Hover check execution time: ${end - start} ms`);
         
         // Only proceed if we have a hovered group
         if (!hoveredGroupId) {
