@@ -3,7 +3,7 @@
 
 ; Configuration
 colorCheckRadius := 2    ; Radius in pixels to check for hover detection
-targetColors := [0xEE5FB7, 0x4A89BA, 0xCF87DA, 0x69A1FA, 0x84817E, 0x4CB4B7, 0xDF8E64, 0xC1A256]  ; Colors to check for
+targetColors := [0xEE5FB7, 0x4A89BA, 0xCF87DA, 0x69A1FA, 0x84817E, 0x4CB4B7, 0xDF8E64, 0xC1A256, 0xB696FF]  ; Colors to check for
 
 ; Function to check if a color matches any target color
 IsTargetColor(color) {

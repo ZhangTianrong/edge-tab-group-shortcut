@@ -13,7 +13,7 @@ use active_win_pos_rs::get_active_window;
 
 const VERTICAL_THRESHOLD: f64 = 60.0; // Maximum pixels from top of window
 const LOG_FILE: &str = "hover_detector.log";
-const TARGET_COLORS: [u32; 8] = [0xEE5FB7, 0x4A89BA, 0xCF87DA, 0x69A1FA, 0x84817E, 0x4CB4B7, 0xDF8E64, 0xC1A256];
+const TARGET_COLORS: [u32; 9] = [0xEE5FB7, 0x4A89BA, 0xCF87DA, 0x69A1FA, 0x84817E, 0x4CB4B7, 0xDF8E64, 0xC1A256, 0xB696FF];
 const BACKGROUND_COLOR: u32 = 0x202020;
 const PROXIMITY_RADIUS: i32 = 2; // Radius in pixels to check around cursor for target colors
 
