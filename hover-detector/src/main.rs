@@ -13,7 +13,8 @@ use active_win_pos_rs::get_active_window;
 
 const VERTICAL_THRESHOLD: f64 = 60.0; // Maximum pixels from top of window
 const LOG_FILE: &str = "hover_detector.log";
-const TARGET_COLORS: [u32; 9] = [0x7AA1FA, 0xDC6AB8, 0xC58CDB, 0xB299FF, 0x5D88BA, 0x6CB2B7, 0xD29265, 0xBBA356, 0x84817E];
+const TARGET_COLORS: [u32; 9] = [0x779FF8, 0xE06AB7, 0xC78BD9, 0xB497FE, 0x5987B9, 0x65B1B6, 0xD59367, 0xBCA359, 0x83817E];
+const TARGET_COLORS_ALT: [u32; 9] = [0x7BA0FD, 0xDB6ABA, 0xC48BDD, 0xB298FF, 0x5E87BC, 0x6DB1B7, 0xD19262, 0xBAA351, 0x83817E];
 const BACKGROUND_COLOR: u32 = 0x202020;
 const PROXIMITY_RADIUS: i32 = 2; // Radius in pixels to check around cursor for target colors
 
@@ -245,10 +246,12 @@ fn get_hovered_tab_group_index() -> Result<u32> {
         let check_x = cursor_x as i32 + dx;
         if check_x >= 0 && check_x < capture.width() as i32 {
             if let Some(color) = get_pixel_color(&capture, check_x as u32, scan_y) {
-                if TARGET_COLORS.contains(&color) {
+                if TARGET_COLORS.contains(&color) || TARGET_COLORS_ALT.contains(&color) {
                     found_target_color = true;
                     log_to_file(&format!("Found target color #{:06x} at x-offset {}", color, dx))?;
                     break 'proximity_check;
+                } else {
+                    log_to_file(&format!("Color at x-offset {} is not a target color: #{:06x}", dx, color))?;
                 }
             }
         }
@@ -272,9 +275,9 @@ fn get_hovered_tab_group_index() -> Result<u32> {
     for x in 0..capture.width() {
         if let Some(current_color) = get_pixel_color(&capture, x, scan_y) {
             // Only update last_color if current is background or target
-            if current_color == BACKGROUND_COLOR || TARGET_COLORS.contains(&current_color) {
+            if current_color == BACKGROUND_COLOR || TARGET_COLORS.contains(&current_color) || TARGET_COLORS_ALT.contains(&current_color) {
                 // Detect transitions
-                if !in_group && last_color == BACKGROUND_COLOR && TARGET_COLORS.contains(&current_color) {
+                if !in_group && last_color == BACKGROUND_COLOR && (TARGET_COLORS.contains(&current_color) || TARGET_COLORS_ALT.contains(&current_color)) {
                     // Start of new tab group
                     current_group_index += 1;
                     in_group = true;
@@ -290,7 +293,7 @@ fn get_hovered_tab_group_index() -> Result<u32> {
                         }
                         return Ok(0);
                     }
-                } else if in_group && TARGET_COLORS.contains(&last_color) && current_color == BACKGROUND_COLOR {
+                } else if in_group && (TARGET_COLORS.contains(&last_color) || TARGET_COLORS_ALT.contains(&last_color) ) && current_color == BACKGROUND_COLOR {
                     // End of tab group
                     in_group = false;
                     groups.push((group_start, x));
