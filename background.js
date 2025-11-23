@@ -170,6 +170,14 @@ async function closeGroupTabs(groupId) {
     try {
         console.log(`Closing tabs in group ${groupId}`);
         
+        // Collapse the group first to avoid animation lag
+        try {
+            await chrome.tabGroups.update(groupId, { collapsed: true });
+            console.log('Group collapsed before closing');
+        } catch (collapseError) {
+            console.warn('Could not collapse group, continuing with removal:', collapseError);
+        }
+        
         // Get all tabs in the group
         const tabs = await chrome.tabs.query({ groupId });
         console.log(`Found ${tabs.length} tabs in group`);
@@ -197,6 +205,17 @@ async function closeOtherTabs(exceptGroupId) {
             tab.groupId !== exceptGroupId && 
             tab.groupId !== chrome.tabGroups.TAB_GROUP_ID_NONE
         );
+        
+        // Collapse all groups that will have tabs removed to avoid animation lag
+        const groupsToCollapse = new Set(tabsToClose.map(tab => tab.groupId));
+        for (const groupId of groupsToCollapse) {
+            try {
+                await chrome.tabGroups.update(groupId, { collapsed: true });
+                console.log(`Group ${groupId} collapsed before closing`);
+            } catch (collapseError) {
+                console.warn(`Could not collapse group ${groupId}, continuing with removal:`, collapseError);
+            }
+        }
         
         const tabIds = tabsToClose.map(tab => tab.id);
         await chrome.tabs.remove(tabIds);
