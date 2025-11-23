@@ -38,7 +38,7 @@ IsWithinTargetArea() {
     MouseGetPos(&mouseX, &mouseY, , &mouseControl)
     
     ; Check if mouse is over the correct control
-    if (mouseControl != "Intermediate D3D Window2")
+    if (mouseControl != "Intermediate D3D Window1")
         return false
         
     ; Check for target colors
