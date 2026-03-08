@@ -66,6 +66,12 @@ This extension relies on specific, observed behaviors of the browser that may ch
 
 1. **Locating Title Bar:** The program assumse that the top `VERTICAL_THRESHOLD` pixels of the window belongs to title bar. It might require adjustment based on your scaling factor or other specific UI configurations. By seting environment variable `TABGROUP_HOVER_DETECTOR_VERBOSE`, the program will save logs and screenshots of the tab bar to disk for debugging.
 
-2. **Identifying the Active Edge Window:** When hovering over a collapsed tab group, Edge displays a pop-up window listing the tabs within that group. This action causes the main browser window to lose focus. The extension finds the main browser window by searching for Edge windows whose top border is within `y_threshold` pixels above the pop-up and selects the window closest to the pop-up horizontally.
+2. **Identifying the Active Edge Window:** When hovering over a collapsed tab group, Edge may focus a pop-up/flyout window with an empty title. The detector resolves the real browser window using Win32 window handles (`WindowFromPoint`, foreground window, owner/root-owner chain), then falls back to the browser window under the cursor.
 
-3. **Locating Tab Groups:** Edge currently supports only 9 predefined colors for tab groups. The extension leverages this to determine the starting and ending point of tab groups by scanning for color transitions between the tab bar's background color and one of these 9 colors along the center line of the tab bar. The `BACKGROUND_COLOR` might need to be modified to match your chosen theme. The extension can fail if the background of the tab bar cis not uniform and contains a color reserved for tab groups.
+3. **Locating Tab Groups:** The detector matches known tab-group colors with a tolerance and learns background colors from each captured scanline, instead of relying on one exact background RGB value. This is more robust across Edge updates, themes, and rendering differences.
+
+4. **Optional Color Overrides:** You can override color detection at runtime without rebuilding:
+   - `TABGROUP_HOVER_EXTRA_COLORS`: Comma/space separated hex colors (for example `#5E87BC,#DB6ABA`)
+   - `TABGROUP_HOVER_BG_COLORS`: Comma/space separated hex background colors (for example `#000000,#333333`)
+   - `TABGROUP_HOVER_MIN_GROUP_WIDTH`: Minimum width (pixels) for an accepted tab-group segment (default `24`)
+   - `TABGROUP_HOVER_MIN_BG_GAP_WIDTH`: Minimum continuous background gap (pixels) required to split groups (default `8`)

@@ -2,53 +2,83 @@
 #SingleInstance Force
 
 ; Configuration
-colorCheckRadius := 2    ; Radius in pixels to check for hover detection
-targetColors := [0x779FF8, 0xE06AB7, 0xC78BD9, 0xB497FE, 0x5987B9, 0x65B1B6, 0xD59367, 0xBCA359, 0x83817E, 0x7BA0FD, 0xDB6ABA, 0xC48BDD, 0xB298FF, 0x5E87BC, 0x6DB1B7, 0xD19262, 0xBAA351, 0x83817E]  ; Colors to check for
+closeGroupShortcut := "!+w" ; Alt+Shift+W
+hoverDetectorExe := ""
 
-; Function to check if a color matches any target color
-IsTargetColor(color) {
-    for targetColor in targetColors {
-        if (color = targetColor)
-            return true
+ResolveHoverDetectorExe() {
+    global hoverDetectorExe
+
+    if (hoverDetectorExe != "" && FileExist(hoverDetectorExe)) {
+        return hoverDetectorExe
     }
-    return false
-}
 
-; Function to check if any pixel within radius matches target colors
-HasTargetColorInRadius(x, y, radius) {
-    offsetY := -radius
-    while offsetY <= radius {
-        offsetX := -radius
-        while offsetX <= radius {
-            try {
-                color := PixelGetColor(x + offsetX, y + offsetY)
-                if IsTargetColor(color)
-                    return true
-            }
-            offsetX++
+    envOverride := Trim(EnvGet("TABGROUP_HOVER_DETECTOR_EXE"))
+    if (envOverride != "" && FileExist(envOverride)) {
+        hoverDetectorExe := envOverride
+        return hoverDetectorExe
+    }
+
+    candidates := [
+        A_ScriptDir "\..\hover-detector\target\release\hover-detector.exe",
+        A_ScriptDir "\hover-detector.exe",
+        A_WorkingDir "\hover-detector\target\release\hover-detector.exe"
+    ]
+
+    for candidate in candidates {
+        if FileExist(candidate) {
+            hoverDetectorExe := candidate
+            return hoverDetectorExe
         }
-        offsetY++
     }
-    return false
+
+    hoverDetectorExe := ""
+    return ""
 }
 
-; Function to check all conditions
-IsWithinTargetArea() {
-    ; Get mouse position and control info
-    MouseGetPos(&mouseX, &mouseY, , &mouseControl)
-    
-    ; Check if mouse is over the correct control
-    if (mouseControl != "Intermediate D3D Window1")
-        return false
-        
-    ; Check for target colors
-    return HasTargetColorInRadius(mouseX, mouseY, colorCheckRadius)
+GetHoveredGroupIndex() {
+    detectorExe := ResolveHoverDetectorExe()
+    if (detectorExe = "") {
+        return 0
+    }
+
+    outFile := A_Temp "\tabgroup_hover_" DllCall("GetCurrentProcessId") "_" A_TickCount ".txt"
+    cmd := '"' A_ComSpec '" /d /q /c ""' detectorExe '" > "' outFile '" 2>nul"'
+
+    try {
+        RunWait(cmd, , "Hide")
+
+        if FileExist(outFile) {
+            output := Trim(FileRead(outFile, "UTF-8"))
+            FileDelete(outFile)
+            if RegExMatch(output, "^\d+$") {
+                return Integer(output)
+            }
+        }
+    } catch {
+        ; Ignore detector execution errors and fall back to normal middle click.
+    }
+
+    if FileExist(outFile) {
+        try FileDelete(outFile)
+    }
+
+    return 0
 }
 
-; Only activate when in Edge AND all conditions are met
-#HotIf WinActive("ahk_exe msedge.exe") and IsWithinTargetArea()
+; Only activate when Edge is active.
+#HotIf WinActive("ahk_exe msedge.exe")
 
 ; Middle mouse button remap
-MButton::Send "!+w"
+$MButton::
+{
+    global closeGroupShortcut
+
+    if (GetHoveredGroupIndex() > 0) {
+        Send closeGroupShortcut
+    } else {
+        ; Not on a tab-group tag: keep default middle-click behavior.
+        Send "{Blind}{MButton}"
+    }
+}
 
 #HotIf  ; End the context sensitivity

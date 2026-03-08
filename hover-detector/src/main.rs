@@ -2,14 +2,22 @@ use anyhow::Result;
 use chrono::Local;
 use image::{ImageBuffer, Rgb, RgbaImage};
 use log::{error, LevelFilter};
-use std::{fs::OpenOptions, io::Write, env};
+use std::{collections::HashMap, env, fs::OpenOptions, io::Write};
 use windows::{
-    Win32::Foundation::{POINT, RECT},
-    Win32::UI::WindowsAndMessaging::GetCursorPos,
+    Win32::Foundation::{HWND, POINT, RECT},
+    Win32::UI::WindowsAndMessaging::{
+        GA_ROOT,
+        GA_ROOTOWNER,
+        GW_OWNER,
+        GetAncestor,
+        GetCursorPos,
+        GetForegroundWindow,
+        GetWindow,
+        WindowFromPoint,
+    },
     Win32::UI::HiDpi::{SetProcessDpiAwareness, PROCESS_PER_MONITOR_DPI_AWARE},
 };
 use xcap::Window;
-use active_win_pos_rs::get_active_window;
 
 const VERTICAL_THRESHOLD: f64 = 60.0; // Maximum pixels from top of window
 const LOG_FILE: &str = "hover_detector.log";
@@ -17,6 +25,11 @@ const TARGET_COLORS: [u32; 9] = [0x779FF8, 0xE06AB7, 0xC78BD9, 0xB497FE, 0x5987B
 const TARGET_COLORS_ALT: [u32; 9] = [0x7BA0FD, 0xDB6ABA, 0xC48BDD, 0xB298FF, 0x5E87BC, 0x6DB1B7, 0xD19262, 0xBAA351, 0x83817E];
 const BACKGROUND_COLOR: u32 = 0x202020;
 const PROXIMITY_RADIUS: i32 = 2; // Radius in pixels to check around cursor for target colors
+const TARGET_COLOR_TOLERANCE: u32 = 20;
+const BACKGROUND_COLOR_TOLERANCE: u32 = 18;
+const MAX_BACKGROUND_COLORS: usize = 6;
+const MIN_GROUP_WIDTH_DEFAULT: u32 = 24;
+const MIN_BACKGROUND_GAP_WIDTH_DEFAULT: u32 = 8;
 
 fn is_verbose() -> bool {
     env::var("TABGROUP_HOVER_DETECTOR_VERBOSE").is_ok()
@@ -40,6 +53,235 @@ fn get_cursor_pos() -> Result<POINT> {
         GetCursorPos(&mut point).ok()?;
     }
     Ok(point)
+}
+
+fn color_distance(a: u32, b: u32) -> u32 {
+    let ar = ((a >> 16) & 0xFF) as i32;
+    let ag = ((a >> 8) & 0xFF) as i32;
+    let ab = (a & 0xFF) as i32;
+    let br = ((b >> 16) & 0xFF) as i32;
+    let bg = ((b >> 8) & 0xFF) as i32;
+    let bb = (b & 0xFF) as i32;
+    ((ar - br).abs() + (ag - bg).abs() + (ab - bb).abs()) as u32
+}
+
+fn parse_hex_color(input: &str) -> Option<u32> {
+    let trimmed = input.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+    let normalized = trimmed
+        .strip_prefix("0x")
+        .or_else(|| trimmed.strip_prefix("0X"))
+        .or_else(|| trimmed.strip_prefix('#'))
+        .unwrap_or(trimmed);
+    if normalized.len() != 6 {
+        return None;
+    }
+    u32::from_str_radix(normalized, 16).ok()
+}
+
+fn parse_colors_from_env(var_name: &str) -> Vec<u32> {
+    let Ok(raw) = env::var(var_name) else {
+        return Vec::new();
+    };
+    raw.split(|c: char| c == ',' || c == ';' || c.is_whitespace())
+        .filter_map(parse_hex_color)
+        .collect()
+}
+
+fn parse_u32_from_env(var_name: &str, default_value: u32) -> u32 {
+    env::var(var_name)
+        .ok()
+        .and_then(|raw| raw.trim().parse::<u32>().ok())
+        .unwrap_or(default_value)
+}
+
+fn target_colors() -> Vec<u32> {
+    let mut colors = Vec::with_capacity(TARGET_COLORS.len() + TARGET_COLORS_ALT.len() + 8);
+    colors.extend(TARGET_COLORS);
+    colors.extend(TARGET_COLORS_ALT);
+    colors.extend(parse_colors_from_env("TABGROUP_HOVER_EXTRA_COLORS"));
+    colors
+}
+
+fn color_channel_spread(color: u32) -> u32 {
+    let r = (color >> 16) & 0xFF;
+    let g = (color >> 8) & 0xFF;
+    let b = color & 0xFF;
+    let max = r.max(g).max(b);
+    let min = r.min(g).min(b);
+    max - min
+}
+
+fn color_max_channel(color: u32) -> u32 {
+    let r = (color >> 16) & 0xFF;
+    let g = (color >> 8) & 0xFF;
+    let b = color & 0xFF;
+    r.max(g).max(b)
+}
+
+fn is_target_color(color: u32, targets: &[u32]) -> bool {
+    targets
+        .iter()
+        .any(|target| color_distance(color, *target) <= TARGET_COLOR_TOLERANCE)
+}
+
+fn is_background_color(color: u32, background_candidates: &[u32]) -> bool {
+    background_candidates
+        .iter()
+        .any(|candidate| color_distance(color, *candidate) <= BACKGROUND_COLOR_TOLERANCE)
+}
+
+fn resolve_background_candidates(img: &RgbaImage, scan_y: u32, targets: &[u32]) -> Vec<u32> {
+    let user_candidates = parse_colors_from_env("TABGROUP_HOVER_BG_COLORS");
+    if !user_candidates.is_empty() {
+        return user_candidates;
+    }
+
+    let mut counts: HashMap<u32, u32> = HashMap::new();
+    for x in 0..img.width() {
+        if let Some(color) = get_pixel_color(img, x, scan_y) {
+            if !is_target_color(color, targets) {
+                *counts.entry(color).or_insert(0) += 1;
+            }
+        }
+    }
+
+    let min_count = ((img.width() as f64) * 0.005).max(6.0) as u32;
+    let mut sorted: Vec<(u32, u32)> = counts.into_iter().collect();
+    sorted.sort_by(|a, b| b.1.cmp(&a.1));
+
+    let mut candidates = Vec::new();
+    for (color, count) in sorted {
+        if count < min_count {
+            break;
+        }
+        let spread = color_channel_spread(color);
+        let max_channel = color_max_channel(color);
+        if spread <= 28 && max_channel <= 120 {
+            candidates.push(color);
+            if candidates.len() >= MAX_BACKGROUND_COLORS {
+                break;
+            }
+        }
+    }
+
+    if candidates.is_empty() {
+        candidates.push(BACKGROUND_COLOR);
+    }
+    candidates
+}
+
+fn is_browser_app_name(app_name: &str) -> bool {
+    app_name.contains("edge") || app_name.contains("chrome")
+}
+
+fn is_point_in_window(cursor: POINT, window: &Window) -> bool {
+    let left = window.x();
+    let top = window.y();
+    let right = left + window.width() as i32;
+    let bottom = top + window.height() as i32;
+
+    cursor.x >= left && cursor.x < right && cursor.y >= top && cursor.y < bottom
+}
+
+fn push_unique_handle(handles: &mut Vec<HWND>, hwnd: HWND) {
+    if hwnd.0 != 0 && !handles.iter().any(|h| h.0 == hwnd.0) {
+        handles.push(hwnd);
+    }
+}
+
+fn add_handle_candidates(handles: &mut Vec<HWND>, start: HWND) {
+    if start.0 == 0 {
+        return;
+    }
+
+    push_unique_handle(handles, start);
+
+    unsafe {
+        push_unique_handle(handles, GetAncestor(start, GA_ROOTOWNER));
+        push_unique_handle(handles, GetAncestor(start, GA_ROOT));
+    }
+
+    let mut current = start;
+    for _ in 0..8 {
+        unsafe {
+            let owner = GetWindow(current, GW_OWNER);
+            if owner.0 == 0 || owner.0 == current.0 {
+                break;
+            }
+            push_unique_handle(handles, owner);
+            push_unique_handle(handles, GetAncestor(owner, GA_ROOTOWNER));
+            push_unique_handle(handles, GetAncestor(owner, GA_ROOT));
+            current = owner;
+        }
+    }
+}
+
+fn resolve_browser_window<'a>(windows: &'a [Window], cursor: POINT) -> Result<&'a Window> {
+    let mut candidates = Vec::new();
+    unsafe {
+        add_handle_candidates(&mut candidates, WindowFromPoint(cursor));
+        add_handle_candidates(&mut candidates, GetForegroundWindow());
+    }
+
+    if is_verbose() {
+        let handles = candidates
+            .iter()
+            .map(|h| format!("{}", h.0))
+            .collect::<Vec<_>>()
+            .join(", ");
+        log_to_file(&format!("HWND candidates: [{}]", handles))?;
+    }
+
+    for hwnd in &candidates {
+        if let Some(window) = windows.iter().find(|w| w.id() as isize == hwnd.0) {
+            let app_name = window.app_name().to_lowercase();
+            if is_browser_app_name(&app_name) && !window.title().is_empty() {
+                log_to_file(&format!(
+                    "Resolved browser via HWND chain: id={}, title='{}', app='{}'",
+                    window.id(),
+                    window.title(),
+                    window.app_name()
+                ))?;
+                return Ok(window);
+            }
+        }
+    }
+
+    if let Some(window) = windows
+        .iter()
+        .filter(|w| is_browser_app_name(&w.app_name().to_lowercase()))
+        .filter(|w| !w.title().is_empty())
+        .filter(|w| is_point_in_window(cursor, w))
+        .max_by_key(|w| (w.width() as u64) * (w.height() as u64))
+    {
+        log_to_file(&format!(
+            "Resolved browser via cursor containment fallback: id={}, title='{}', app='{}'",
+            window.id(),
+            window.title(),
+            window.app_name()
+        ))?;
+        return Ok(window);
+    }
+
+    if let Some(window) = windows
+        .iter()
+        .find(|w| w.is_focused() && is_browser_app_name(&w.app_name().to_lowercase()))
+    {
+        log_to_file(&format!(
+            "Resolved browser via focused window fallback: id={}, title='{}', app='{}'",
+            window.id(),
+            window.title(),
+            window.app_name()
+        ))?;
+        return Ok(window);
+    }
+
+    Err(anyhow::anyhow!(
+        "No Edge/Chrome window found for hover detection"
+    ))
 }
 
 fn get_pixel_color(img: &RgbaImage, x: u32, y: u32) -> Option<u32> {
@@ -117,21 +359,8 @@ fn save_screenshot(
 fn get_hovered_tab_group_index() -> Result<u32> {
     let timestamp = Local::now().format("%Y%m%d_%H%M%S").to_string();
     log_to_file(&format!("Starting hover detection at {}", timestamp))?;
-
-    // Get active window first
-    let active_window = get_active_window().map_err(|_| anyhow::anyhow!("Failed to get active window"))?;
-
-    // Log active window details
-    log_to_file(&format!(
-        "Active window details: title='{}', path={:?}, id={}, pos=({}, {}), size={}x{}", 
-        active_window.title,
-        active_window.process_path,
-        active_window.window_id,
-        active_window.position.x,
-        active_window.position.y,
-        active_window.position.width,
-        active_window.position.height
-    ))?;
+    let cursor = get_cursor_pos()?;
+    log_to_file(&format!("Cursor position: x={}, y={}", cursor.x, cursor.y))?;
 
     // Get all windows
     let windows = Window::all()?;
@@ -144,50 +373,12 @@ fn get_hovered_tab_group_index() -> Result<u32> {
         ))?;
     }
 
-    // Determine the window to use for hover detection
-    let focused_window = if active_window.title.is_empty() 
-        && active_window.process_path
-            .file_name()
-            .and_then(|f| f.to_str())
-            .map(|s| s.to_lowercase())
-            .unwrap_or_default()
-            .contains("msedge")
-    {
-        let popup_x = active_window.position.x as i32;
-        let popup_y = active_window.position.y as i32;
-        
-        log_to_file(&format!(
-            "Detected Edge popup window at ({}, {}), searching for parent Edge window",
-            popup_x, popup_y
-        ))?;
-        
-        // Find Edge window that is slightly above and to the left of the popup
-        let y_threshold = 50;
-        let x_tolorance = 50;
-        let edge_window = windows
-            .iter()
-            .filter(|w| w.app_name().to_lowercase().contains("edge"))
-            .filter(|w| !w.title().is_empty()) // Exclude the popup itself
-            .filter(|w| {
-                let y_diff = popup_y - w.y(); // Positive if popup is below window
-                y_diff > 0 && y_diff < y_threshold // Popup must be below but within threshold
-            })
-            .filter(|w| w.x() < popup_x + x_tolorance) // Window must be to the left of popup
-            .min_by_key(|w| popup_x - w.x()) // Find closest window from the left
-            .ok_or_else(|| anyhow::anyhow!("No Edge window found"))?;
-        
-        log_to_file(&format!(
-            "Selected Edge window based on popup: title='{}', pos=({}, {})", 
-            edge_window.title(), edge_window.x(), edge_window.y()
-        ))?;
-
-        edge_window
-    } else {
-        // Use normal focused window detection
-        windows
-            .iter()
-            .find(|w| w.is_focused())
-            .ok_or_else(|| anyhow::anyhow!("No focused window found"))?
+    let focused_window = match resolve_browser_window(&windows, cursor) {
+        Ok(window) => window,
+        Err(e) => {
+            log_to_file(&format!("Browser window resolution failed: {}", e))?;
+            return Ok(0);
+        }
     };
     
     log_to_file(&format!("Selected window for hover detection: '{}' ({})", 
@@ -210,15 +401,11 @@ fn get_hovered_tab_group_index() -> Result<u32> {
     log_to_file(&format!("Window bounds: left={}, top={}, right={}, bottom={}", 
         bounds.left, bounds.top, bounds.right, bounds.bottom))?;
     
-    // Get cursor position
-    let cursor = get_cursor_pos()?;
-    log_to_file(&format!("Cursor position: x={}, y={}", cursor.x, cursor.y))?;
-    
     // Check if cursor is within tab group area
     if cursor.x < bounds.left
-        || cursor.x > bounds.right
+        || cursor.x >= bounds.right
         || cursor.y < bounds.top
-        || cursor.y > bounds.bottom
+        || cursor.y >= bounds.bottom
     {
         log_to_file("Cursor outside tab group area")?;
         return Ok(0);
@@ -230,6 +417,28 @@ fn get_hovered_tab_group_index() -> Result<u32> {
     
     // Take screenshot of the window
     let capture = focused_window.capture_image()?;
+    let targets = target_colors();
+    let background_candidates = resolve_background_candidates(&capture, scan_y, &targets);
+    let min_group_width = parse_u32_from_env(
+        "TABGROUP_HOVER_MIN_GROUP_WIDTH",
+        MIN_GROUP_WIDTH_DEFAULT,
+    );
+    let min_bg_gap_width = parse_u32_from_env(
+        "TABGROUP_HOVER_MIN_BG_GAP_WIDTH",
+        MIN_BACKGROUND_GAP_WIDTH_DEFAULT,
+    );
+    log_to_file(&format!(
+        "Using {} target colors and {} background candidates: [{}], min_group_width={}, min_bg_gap_width={}",
+        targets.len(),
+        background_candidates.len(),
+        background_candidates
+            .iter()
+            .map(|c| format!("#{:06X}", c))
+            .collect::<Vec<_>>()
+            .join(", "),
+        min_group_width,
+        min_bg_gap_width
+    ))?;
     
     // Convert cursor position to image coordinates
     let cursor_x = (cursor.x - bounds.left) as u32;
@@ -246,7 +455,7 @@ fn get_hovered_tab_group_index() -> Result<u32> {
         let check_x = cursor_x as i32 + dx;
         if check_x >= 0 && check_x < capture.width() as i32 {
             if let Some(color) = get_pixel_color(&capture, check_x as u32, scan_y) {
-                if TARGET_COLORS.contains(&color) || TARGET_COLORS_ALT.contains(&color) {
+                if is_target_color(color, &targets) {
                     found_target_color = true;
                     log_to_file(&format!("Found target color #{:06x} at x-offset {}", color, dx))?;
                     break 'proximity_check;
@@ -265,65 +474,102 @@ fn get_hovered_tab_group_index() -> Result<u32> {
     log_to_file(&format!("Checking tab groups at cursor x={}", cursor_x))?;
     
     // Variables to track tab groups
-    let mut current_group_index = 0;
-    let mut last_color = BACKGROUND_COLOR;
-    let mut group_start = 0;
     let mut groups = Vec::new();
-    let mut in_group = false;
+    let mut active_group_start: Option<u32> = None;
+    let mut pending_bg_start: Option<u32> = None;
 
     // Scan horizontally for tab groups
     for x in 0..capture.width() {
         if let Some(current_color) = get_pixel_color(&capture, x, scan_y) {
-            // Only update last_color if current is background or target
-            if current_color == BACKGROUND_COLOR || TARGET_COLORS.contains(&current_color) || TARGET_COLORS_ALT.contains(&current_color) {
-                // Detect transitions
-                if !in_group && last_color == BACKGROUND_COLOR && (TARGET_COLORS.contains(&current_color) || TARGET_COLORS_ALT.contains(&current_color)) {
-                    // Start of new tab group
-                    current_group_index += 1;
-                    in_group = true;
-                    group_start = x;
-                    log_to_file(&format!("Found tab group {} starting at x={} (color=#{:06x})", 
-                        current_group_index, x, current_color))?;
-                    
-                    // Check if cursor is before this group
-                    if cursor_x <= x {
-                        log_to_file("Cursor before this group")?;
-                        if is_verbose() && !groups.is_empty() {
-                            save_screenshot(&capture, scan_y, cursor_x, cursor_y, &groups, &timestamp)?;
-                        }
-                        return Ok(0);
-                    }
-                } else if in_group && (TARGET_COLORS.contains(&last_color) || TARGET_COLORS_ALT.contains(&last_color) ) && current_color == BACKGROUND_COLOR {
-                    // End of tab group
-                    in_group = false;
-                    groups.push((group_start, x));
-                    log_to_file(&format!("Tab group {} ends at x={}", current_group_index, x))?;
-                    
-                    // Check if cursor was in this group
-                    if cursor_x <= x {
-                        log_to_file(&format!("Cursor in group {}", current_group_index))?;
-                        if is_verbose() {
-                            save_screenshot(&capture, scan_y, cursor_x, cursor_y, &groups, &timestamp)?;
-                        }
-                        return Ok(current_group_index);
-                    }
+            let current_is_target = is_target_color(current_color, &targets);
+            let current_is_background = is_background_color(current_color, &background_candidates);
+
+            if active_group_start.is_none() {
+                if current_is_target {
+                    active_group_start = Some(x);
+                    pending_bg_start = None;
                 }
-                last_color = current_color;
+                continue;
+            }
+
+            if current_is_target {
+                pending_bg_start = None;
+                continue;
+            }
+
+            if current_is_background {
+                if pending_bg_start.is_none() {
+                    pending_bg_start = Some(x);
+                }
+                let bg_start = pending_bg_start.unwrap_or(x);
+                let bg_width = x.saturating_sub(bg_start) + 1;
+                if bg_width >= min_bg_gap_width {
+                    let group_start = active_group_start.unwrap_or(0);
+                    let group_end = bg_start;
+                    let group_width = group_end.saturating_sub(group_start);
+                    if group_width >= min_group_width {
+                        groups.push((group_start, group_end));
+                        log_to_file(&format!(
+                            "Accepted tab group {}: start={}, end={}, width={}",
+                            groups.len(),
+                            group_start,
+                            group_end,
+                            group_width
+                        ))?;
+                    } else {
+                        log_to_file(&format!(
+                            "Ignored narrow group candidate: start={}, end={}, width={}",
+                            group_start,
+                            group_end,
+                            group_width
+                        ))?;
+                    }
+                    active_group_start = None;
+                    pending_bg_start = None;
+                }
             }
         }
     }
     
     // Handle case where cursor is in last group that extends to window edge
-    if in_group {
-        groups.push((group_start, capture.width()));
-        log_to_file(&format!("Cursor in last group {} (extends to window edge)", current_group_index))?;
-        if is_verbose() {
-            save_screenshot(&capture, scan_y, cursor_x, cursor_y, &groups, &timestamp)?;
+    if let Some(group_start) = active_group_start {
+        let group_end = capture.width();
+        let group_width = group_end.saturating_sub(group_start);
+        if group_width >= min_group_width {
+            groups.push((group_start, group_end));
+            log_to_file(&format!(
+                "Accepted trailing tab group {}: start={}, end={}, width={}",
+                groups.len(),
+                group_start,
+                group_end,
+                group_width
+            ))?;
+        } else {
+            log_to_file(&format!(
+                "Ignored narrow trailing group candidate: start={}, end={}, width={}",
+                group_start,
+                group_end,
+                group_width
+            ))?;
         }
-        return Ok(current_group_index);
     }
-    
-    log_to_file("No tab group found at cursor position")?;
+
+    if is_verbose() {
+        save_screenshot(&capture, scan_y, cursor_x, cursor_y, &groups, &timestamp)?;
+    }
+
+    for (index, (start, end)) in groups.iter().enumerate() {
+        if cursor_x >= *start && cursor_x < *end {
+            let group_index = (index + 1) as u32;
+            log_to_file(&format!(
+                "Cursor in accepted group {} (range {}..{})",
+                group_index, start, end
+            ))?;
+            return Ok(group_index);
+        }
+    }
+
+    log_to_file("No accepted tab group found at cursor position")?;
     Ok(0)
 }
 
