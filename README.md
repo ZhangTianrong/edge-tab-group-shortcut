@@ -35,13 +35,8 @@ These keyboards shortcuts are configurable in `edge://extensions/shortcuts`
    - Enable "Developer mode"
    - Click "Load unpacked"
    - Select the repository directory
-  
-   It is normal to see errors now as the extension id can be different depending on where the project is cloned.
-
-4. Set the correct extension id:
-   - Find the extension id generated for it
-   - Replace the extension id in `native-messaging-host.json` with the one you obtained 
-   - Click "Reload"
+   - The unpacked extension uses a fixed manifest key, so its ID should be `jleolpkhaipikpmgholocbagfbiaajjm`
+   - Click "Reload" after `make install` if the extension was already open
 
 ## Project Structure
 

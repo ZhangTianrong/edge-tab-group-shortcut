@@ -1,5 +1,6 @@
 # Get the absolute path of the project root (Windows-compatible)
 ROOT_DIR := $(CURDIR)
+EXTENSION_ID := jleolpkhaipikpmgholocbagfbiaajjm
 
 # Build targets
 .PHONY: all clean build install test uninstall
@@ -30,7 +31,7 @@ native-messaging-host.json: native-host/target/release/native-host.exe
 	@echo   "path": "$(subst /,\\,$(ROOT_DIR))\\native-host\\target\\release\\native-host.exe", >> $@
 	@echo   "type": "stdio", >> $@
 	@echo   "allowed_origins": [ >> $@
-	@echo     "chrome-extension://kndnhaaahebnocoeepehnccdkkcbeegk/" >> $@
+	@echo     "chrome-extension://$(EXTENSION_ID)/" >> $@
 	@echo   ] >> $@
 	@echo } >> $@
 

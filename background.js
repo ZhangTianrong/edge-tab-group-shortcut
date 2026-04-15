@@ -10,6 +10,8 @@ let orderedGroups = [];
 // Last update timestamp for group state
 let lastGroupUpdate = 0;
 
+const GROUP_COLLAPSE_SETTLE_MS = 250;
+
 // Connect to native messaging host
 function connectNativeHost() {
     console.log('Connecting to native host...');
@@ -165,18 +167,122 @@ function checkHoveredGroup() {
     });
 }
 
+function delay(ms) {
+    return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+function pickNearestTabByIndex(tabs, pivotIndex) {
+    if (tabs.length === 0) {
+        return null;
+    }
+
+    return tabs.reduce((bestTab, tab) => {
+        if (!bestTab) {
+            return tab;
+        }
+
+        const bestDistance = Math.abs(bestTab.index - pivotIndex);
+        const currentDistance = Math.abs(tab.index - pivotIndex);
+        if (currentDistance !== bestDistance) {
+            return currentDistance < bestDistance ? tab : bestTab;
+        }
+
+        return tab.index < bestTab.index ? tab : bestTab;
+    }, null);
+}
+
+function findTabToActivateBeforeClose(windowTabs, activeTab, tabIdsToClose) {
+    const closingTabIds = new Set(tabIdsToClose);
+    if (!closingTabIds.has(activeTab.id)) {
+        return null;
+    }
+
+    const survivingTabs = windowTabs.filter(tab => !closingTabIds.has(tab.id));
+    if (survivingTabs.length === 0) {
+        return null;
+    }
+
+    return pickNearestTabByIndex(survivingTabs, activeTab.index);
+}
+
+async function activateSurvivingTabIfNeeded(windowTabs, activeTab, tabIdsToClose) {
+    const nextTab = findTabToActivateBeforeClose(windowTabs, activeTab, tabIdsToClose);
+    if (!nextTab) {
+        return;
+    }
+
+    try {
+        await chrome.tabs.update(nextTab.id, { active: true });
+        console.log(`Activated survivor tab ${nextTab.id} before closing active tab ${activeTab.id}`);
+    } catch (error) {
+        console.warn(`Could not activate survivor tab ${nextTab.id} before close:`, error);
+    }
+}
+
+async function waitForGroupToBeCollapsed(groupId, timeoutMs = 1000) {
+    const deadline = Date.now() + timeoutMs;
+
+    while (Date.now() < deadline) {
+        try {
+            const group = await chrome.tabGroups.get(groupId);
+            if (group.collapsed) {
+                return true;
+            }
+        } catch (error) {
+            console.warn(`Could not read group ${groupId} while waiting for collapse:`, error);
+            return false;
+        }
+
+        await delay(50);
+    }
+
+    return false;
+}
+
+async function collapseGroupBeforeClosing(groupId) {
+    try {
+        const group = await chrome.tabGroups.get(groupId);
+        if (group.collapsed) {
+            console.log(`Group ${groupId} already collapsed before closing`);
+            return;
+        }
+
+        await chrome.tabGroups.update(groupId, { collapsed: true });
+
+        const collapseObserved = await waitForGroupToBeCollapsed(groupId);
+        if (!collapseObserved) {
+            console.warn(`Timed out waiting for group ${groupId} to report collapsed`);
+        }
+
+        // Chromium resolves the update before the UI collapse animation fully settles.
+        await delay(GROUP_COLLAPSE_SETTLE_MS);
+        console.log(`Group ${groupId} collapsed and settled before closing`);
+    } catch (collapseError) {
+        console.warn(`Could not fully collapse group ${groupId}, continuing with removal:`, collapseError);
+    }
+}
+
 // Close tabs in a specific group
 async function closeGroupTabs(groupId) {
     try {
         console.log(`Closing tabs in group ${groupId}`);
+
+        const [activeTab] = await chrome.tabs.query({ active: true, currentWindow: true });
+        const windowTabs = activeTab
+            ? await chrome.tabs.query({ windowId: activeTab.windowId })
+            : [];
+        const groupTabsToClose = windowTabs.filter(tab => tab.groupId === groupId);
+
+        if (activeTab) {
+            await activateSurvivingTabIfNeeded(
+                windowTabs,
+                activeTab,
+                groupTabsToClose.map(tab => tab.id)
+            );
+        }
         
         // Collapse the group first to avoid animation lag
-        try {
-            await chrome.tabGroups.update(groupId, { collapsed: true });
-            console.log('Group collapsed before closing');
-        } catch (collapseError) {
-            console.warn('Could not collapse group, continuing with removal:', collapseError);
-        }
+        await collapseGroupBeforeClosing(groupId);
         
         // Get all tabs in the group
         const tabs = await chrome.tabs.query({ groupId });
@@ -198,6 +304,11 @@ async function closeOtherTabs(exceptGroupId) {
         
         // Get all tabs in the current window
         const [currentTab] = await chrome.tabs.query({ active: true, currentWindow: true });
+        if (!currentTab) {
+            console.warn('No active tab found while closing other tabs');
+            return;
+        }
+
         const tabs = await chrome.tabs.query({ windowId: currentTab.windowId });
         
         // Filter tabs not in the excepted group
@@ -205,17 +316,18 @@ async function closeOtherTabs(exceptGroupId) {
             tab.groupId !== exceptGroupId && 
             tab.groupId !== chrome.tabGroups.TAB_GROUP_ID_NONE
         );
+
+        await activateSurvivingTabIfNeeded(
+            tabs,
+            currentTab,
+            tabsToClose.map(tab => tab.id)
+        );
         
         // Collapse all groups that will have tabs removed to avoid animation lag
         const groupsToCollapse = new Set(tabsToClose.map(tab => tab.groupId));
-        for (const groupId of groupsToCollapse) {
-            try {
-                await chrome.tabGroups.update(groupId, { collapsed: true });
-                console.log(`Group ${groupId} collapsed before closing`);
-            } catch (collapseError) {
-                console.warn(`Could not collapse group ${groupId}, continuing with removal:`, collapseError);
-            }
-        }
+        await Promise.all(
+            Array.from(groupsToCollapse, groupId => collapseGroupBeforeClosing(groupId))
+        );
         
         const tabIds = tabsToClose.map(tab => tab.id);
         await chrome.tabs.remove(tabIds);
