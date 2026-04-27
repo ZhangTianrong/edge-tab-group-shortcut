@@ -1,0 +1,9 @@
+{
+  "name": "com.tabgroup.shortcut",
+  "description": "Native messaging host for TabGroup Keyboard Shortcuts",
+  "path": "__HOST_PATH__",
+  "type": "stdio",
+  "allowed_origins": [
+    "chrome-extension://__EXTENSION_ID__/"
+  ]
+}

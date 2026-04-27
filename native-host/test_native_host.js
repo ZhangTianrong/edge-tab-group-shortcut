@@ -20,7 +20,7 @@ const nativeHost = spawn(
     {
         env: {
             ...process.env,
-            RUST_LOG: 'debug'
+            TABGROUP_NATIVE_HOST_DEBUG: '1'
         }
     }
 );

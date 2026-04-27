@@ -18,6 +18,15 @@ ResolveHoverDetectorExe() {
         return hoverDetectorExe
     }
 
+    localAppData := Trim(EnvGet("LOCALAPPDATA"))
+    if (localAppData != "") {
+        installedCandidate := localAppData "\TabGroupShortcut\hover-detector.exe"
+        if FileExist(installedCandidate) {
+            hoverDetectorExe := installedCandidate
+            return hoverDetectorExe
+        }
+    }
+
     candidates := [
         A_ScriptDir "\..\hover-detector\target\release\hover-detector.exe",
         A_ScriptDir "\hover-detector.exe",

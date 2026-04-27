@@ -8,6 +8,7 @@ register_host.reg
 unregister_host.reg
 *.log
 *.exe
+dist/
 
 # Node modules
 node_modules/
@@ -27,3 +28,4 @@ node_modules/
 # Debug files
 debug/
 *.debug
+screenshot_*.png

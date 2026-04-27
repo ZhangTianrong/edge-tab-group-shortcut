@@ -1,8 +1,13 @@
 use anyhow::Result;
 use chrono::Local;
 use image::{ImageBuffer, Rgb, RgbaImage};
-use log::{error, LevelFilter};
-use std::{collections::HashMap, env, fs::OpenOptions, io::Write};
+use std::{
+    collections::HashMap,
+    env,
+    fs::{self, OpenOptions},
+    io::Write,
+    path::{Path, PathBuf},
+};
 use windows::{
     Win32::Foundation::{HWND, POINT, RECT},
     Win32::UI::WindowsAndMessaging::{
@@ -20,7 +25,6 @@ use windows::{
 use xcap::Window;
 
 const VERTICAL_THRESHOLD: f64 = 60.0; // Maximum pixels from top of window
-const LOG_FILE: &str = "hover_detector.log";
 const TARGET_COLORS: [u32; 9] = [0x779FF8, 0xE06AB7, 0xC78BD9, 0xB497FE, 0x5987B9, 0x65B1B6, 0xD59367, 0xBCA359, 0x83817E];
 const TARGET_COLORS_ALT: [u32; 9] = [0x7BA0FD, 0xDB6ABA, 0xC48BDD, 0xB298FF, 0x5E87BC, 0x6DB1B7, 0xD19262, 0xBAA351, 0x83817E];
 const BACKGROUND_COLOR: u32 = 0x202020;
@@ -35,14 +39,40 @@ fn is_verbose() -> bool {
     env::var("TABGROUP_HOVER_DETECTOR_VERBOSE").is_ok()
 }
 
+fn app_root_dir() -> PathBuf {
+    env::var_os("LOCALAPPDATA")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| {
+            env::current_exe()
+                .ok()
+                .and_then(|path| path.parent().map(Path::to_path_buf))
+                .unwrap_or_else(|| PathBuf::from("."))
+        })
+        .join("TabGroupShortcut")
+}
+
+fn verbose_log_path() -> PathBuf {
+    app_root_dir().join("logs").join("hover-detector.log")
+}
+
+fn diagnostics_dir() -> PathBuf {
+    app_root_dir().join("diagnostics")
+}
+
 fn log_to_file(msg: &str) -> Result<()> {
     if !is_verbose() {
         return Ok(());
     }
+
+    let log_path = verbose_log_path();
+    if let Some(parent) = log_path.parent() {
+        fs::create_dir_all(parent)?;
+    }
+
     let mut file = OpenOptions::new()
         .create(true)
         .append(true)
-        .open(LOG_FILE)?;
+        .open(log_path)?;
     writeln!(file, "[{}] {}", Local::now().format("%Y-%m-%d %H:%M:%S"), msg)?;
     Ok(())
 }
@@ -302,6 +332,9 @@ fn save_screenshot(
     groups: &[(u32, u32)],
     timestamp: &str,
 ) -> Result<()> {
+    let diagnostics_dir = diagnostics_dir();
+    fs::create_dir_all(&diagnostics_dir)?;
+
     let height = VERTICAL_THRESHOLD as u32;
     let mut debug_img = ImageBuffer::new(img.width(), height);
 
@@ -352,7 +385,7 @@ fn save_screenshot(
         }
     }
 
-    debug_img.save(format!("screenshot_{}.png", timestamp))?;
+    debug_img.save(diagnostics_dir.join(format!("hover-detector_{}.png", timestamp)))?;
     Ok(())
 }
 
@@ -574,12 +607,6 @@ fn get_hovered_tab_group_index() -> Result<u32> {
 }
 
 fn main() -> Result<()> {
-    // Initialize logger with custom filter
-    env_logger::Builder::new()
-        .filter_level(LevelFilter::Off) // Suppress all logs by default
-        .filter_module("hover_detector", LevelFilter::Error) // Only show our errors
-        .init();
-    
     // Make process DPI aware
     unsafe {
         SetProcessDpiAwareness(PROCESS_PER_MONITOR_DPI_AWARE)
@@ -591,9 +618,6 @@ fn main() -> Result<()> {
             print!("{}", index); // Print just the number for easy parsing
             Ok(())
         }
-        Err(e) => {
-            error!("Error: {}", e);
-            Err(e)
-        }
+        Err(e) => Err(e),
     }
 }

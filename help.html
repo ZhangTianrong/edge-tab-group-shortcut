@@ -1,0 +1,216 @@
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>TabGroup Keyboard Shortcuts Setup</title>
+    <style>
+        :root {
+            color-scheme: light dark;
+            --bg: #f6f2e8;
+            --bg-top: #f8f1e2;
+            --card: #fffaf0;
+            --text: #1f1d1a;
+            --muted: #5b554a;
+            --accent: #9c5c1a;
+            --border: #dfcfb4;
+            --pill-bg: #fff;
+            --code-bg: rgba(34, 28, 18, 0.08);
+            --banner-bg: rgba(156, 92, 26, 0.08);
+            --shadow: rgba(0, 0, 0, 0.18);
+        }
+
+        @media (prefers-color-scheme: dark) {
+            :root {
+                --bg: #17110d;
+                --bg-top: #251a14;
+                --card: #211914;
+                --text: #f3e7d6;
+                --muted: #d0c0ac;
+                --accent: #f0af5c;
+                --border: #4a3a2b;
+                --pill-bg: #2c2119;
+                --code-bg: rgba(255, 247, 237, 0.08);
+                --banner-bg: rgba(240, 175, 92, 0.12);
+                --shadow: rgba(0, 0, 0, 0.42);
+            }
+        }
+
+        * {
+            box-sizing: border-box;
+        }
+
+        body {
+            margin: 0;
+            min-height: 100vh;
+            font-family: "Segoe UI", system-ui, sans-serif;
+            color: var(--text);
+            background:
+                radial-gradient(circle at top left, rgba(156, 92, 26, 0.16), transparent 35%),
+                linear-gradient(180deg, var(--bg-top) 0%, var(--bg) 100%);
+        }
+
+        main {
+            width: min(760px, calc(100vw - 32px));
+            margin: 40px auto;
+            padding: 28px;
+            border: 1px solid var(--border);
+            border-radius: 20px;
+            background: var(--card);
+            box-shadow: 0 18px 48px var(--shadow);
+        }
+
+        h1 {
+            margin: 0 0 12px;
+            font-size: clamp(2rem, 5vw, 3.2rem);
+            line-height: 1;
+            letter-spacing: -0.04em;
+        }
+
+        h2 {
+            margin: 28px 0 10px;
+            font-size: 1.1rem;
+        }
+
+        p,
+        li {
+            line-height: 1.6;
+            color: var(--muted);
+        }
+
+        .banner {
+            margin: 0 0 20px;
+            padding: 14px 16px;
+            border-left: 4px solid var(--accent);
+            border-radius: 12px;
+            background: var(--banner-bg);
+            color: var(--text);
+            font-weight: 600;
+        }
+
+        .pill-row {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 10px;
+            margin: 18px 0 24px;
+        }
+
+        .pill {
+            padding: 8px 12px;
+            border: 1px solid var(--border);
+            border-radius: 999px;
+            background: var(--pill-bg);
+            font-size: 0.95rem;
+            color: var(--text);
+        }
+
+        code {
+            padding: 0.14rem 0.35rem;
+            border-radius: 6px;
+            background: var(--code-bg);
+            font-family: Consolas, "Courier New", monospace;
+            font-size: 0.94em;
+            color: var(--text);
+        }
+
+        a {
+            color: var(--accent);
+            font-weight: 700;
+        }
+
+        ol,
+        ul {
+            padding-left: 1.25rem;
+        }
+
+        .footnote {
+            margin-top: 28px;
+            padding-top: 18px;
+            border-top: 1px solid var(--border);
+            font-size: 0.92rem;
+            color: var(--muted);
+        }
+    </style>
+</head>
+<body>
+    <main>
+        <div class="banner" id="reason-banner">
+            This extension only works on Windows and requires a separate native companion install.
+        </div>
+
+        <h1>Finish The Windows Setup</h1>
+        <p>
+            <strong>TabGroup Keyboard Shortcuts</strong> can only detect hovered tab groups after the
+            native companion is installed. The extension by itself is not enough.
+        </p>
+
+        <div class="pill-row">
+            <span class="pill">Windows only</span>
+            <span class="pill">Native companion required</span>
+            <span class="pill">AutoHotkey optional</span>
+        </div>
+
+        <h2>Install Summary</h2>
+        <ol>
+            <li>Download the Windows companion package from the project release or repository.</li>
+            <li>Run <code>install.ps1</code> from PowerShell.</li>
+            <li>Reload the extension in Edge after the installer finishes.</li>
+            <li>Optional: run the AutoHotkey helper if you want middle-click tab-group closing.</li>
+        </ol>
+
+        <h2>Keyboard Shortcuts</h2>
+        <ul>
+            <li><code>Alt+Shift+W</code>: close all tabs in the hovered group</li>
+            <li><code>Alt+Shift+Q</code>: close all other tab groups</li>
+        </ul>
+
+        <h2>Full Instructions</h2>
+        <p>
+            Follow the Windows setup guide on GitHub:
+            <a href="https://github.com/ZhangTianrong/edge-tab-group-shortcut/blob/master/docs/WINDOWS_SETUP.md" target="_blank" rel="noreferrer">
+                docs/WINDOWS_SETUP.md
+            </a>
+        </p>
+
+        <h2>Detector Configuration</h2>
+        <ul>
+            <li><code>TABGROUP_HOVER_EXTRA_COLORS</code>: extra tab-group colors to accept, like <code>#5E87BC,#DB6ABA</code>.</li>
+            <li><code>TABGROUP_HOVER_BG_COLORS</code>: background colors used to split groups, like <code>#000000,#333333</code>.</li>
+            <li><code>TABGROUP_HOVER_MIN_GROUP_WIDTH</code>: minimum colored segment width in pixels. Default: <code>24</code>.</li>
+            <li><code>TABGROUP_HOVER_MIN_BG_GAP_WIDTH</code>: minimum background gap width in pixels between groups. Default: <code>8</code>.</li>
+            <li><code>TABGROUP_HOVER_DETECTOR_VERBOSE</code>: enables detector logs and diagnostic screenshots.</li>
+        </ul>
+
+        <h2>Common Problems</h2>
+        <ul>
+            <li>If the shortcuts do nothing, the native host is usually missing or registered to the wrong extension ID.</li>
+            <li>If you are testing the unpacked extension, use the development install flow from the GitHub guide.</li>
+            <li>If hover detection is inaccurate, enable the detector’s verbose mode from the guide and review the generated diagnostics.</li>
+        </ul>
+
+        <p class="footnote">
+            Icon attribution:
+            <a href="https://www.flaticon.com/free-icons/tabs" title="tabs icons" target="_blank" rel="noreferrer">Tabs icons created by Freepik - Flaticon</a>
+            and
+            <a href="https://www.flaticon.com/free-icons/qwerty" title="qwerty icons" target="_blank" rel="noreferrer">Qwerty icons created by Freepik - Flaticon</a>.
+            See the <a href="https://www.flaticon.com/legal" target="_blank" rel="noreferrer">Flaticon License</a>.
+        </p>
+    </main>
+
+    <script>
+        const params = new URLSearchParams(window.location.search);
+        const reason = params.get("reason");
+        const banner = document.getElementById("reason-banner");
+
+        const reasonText = {
+            install: "The extension was installed, but the Windows native companion still needs to be set up.",
+            "native-host": "The extension could not reach its Windows native companion. Re-run install.ps1 or check the native-host registration.",
+            manual: "This is the setup guide for the Windows native companion required by the extension.",
+        };
+
+        if (reasonText[reason]) {
+            banner.textContent = reasonText[reason];
+        }
+    </script>
+</body>
+</html>

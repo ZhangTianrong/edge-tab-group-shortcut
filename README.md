@@ -1,6 +1,6 @@
 # TabGroup Keyboard Shortcuts
 
-A browser extension that adds keyboard shortcuts for managing tab groups in Edge. When a keyboard shortcut is pressed, it performs actions on the tab group currently being hovered by the cursor.
+A Windows-only Microsoft Edge extension that lets you act on the tab group currently under the cursor. Hover detection depends on a separately installed native companion.
 
 ![Sample use of closing a non-activated tab group with middle button click](sample-use.gif)
 
@@ -9,34 +9,53 @@ A browser extension that adds keyboard shortcuts for managing tab groups in Edge
 - `Alt+Shift+W`: Close all tabs in the hovered group
 - `Alt+Shift+Q`: Close all groups except the hovered group
 
-These keyboards shortcuts are configurable in `edge://extensions/shortcuts`
+These keyboard shortcuts are configurable in `edge://extensions/shortcuts`.
 
-## Requirements
+## Platform Support
 
-- Rust
-- GNU Make for Windows
-- Node.js (only for testing)
+- Microsoft Edge on Windows
+- Native companion install required for hover detection
+- Optional AutoHotkey helper for middle-click ergonomics
 
-## Installation
+## Windows Setup
 
-1. Clone the repository:
-   ```bash
-   git clone <repository-url>
-   cd <repository-name>
-   ```
+Follow the dedicated Windows setup guide:
 
-2. Build and install the native components:
-   ```bash
-   make install
-   ```
+- [docs/WINDOWS_SETUP.md](docs/WINDOWS_SETUP.md)
 
-3. Load the extension in Chrome/Edge:
-   - Open `edge://extensions`
-   - Enable "Developer mode"
-   - Click "Load unpacked"
-   - Select the repository directory
-   - The unpacked extension uses a fixed manifest key, so its ID should be `jleolpkhaipikpmgholocbagfbiaajjm`
-   - Click "Reload" after `make install` if the extension was already open
+For local development, the typical flow is:
+
+```powershell
+cargo build --release --manifest-path native-host/Cargo.toml
+cargo build --release --manifest-path hover-detector/Cargo.toml
+.\install.ps1 -Channel development
+```
+
+Then load the repo as an unpacked extension in `edge://extensions` and reload it after the install script finishes.
+
+## Store Packaging
+
+Build the Edge Add-ons submission zip with:
+
+```powershell
+.\scripts\package-edge-store.ps1
+```
+
+Reviewer/store copy lives in [docs/EDGE_STORE_SUBMISSION.md](docs/EDGE_STORE_SUBMISSION.md).
+
+Package the Windows companion bundle with:
+
+```powershell
+.\scripts\package-windows-companion.ps1
+```
+
+That bundle is the intended Windows release artifact for users who should be able to extract it and run `install.ps1` directly.
+
+## Attribution
+
+The extension icon is generated from a combined Flaticon-based image and requires attribution:
+
+- [docs/ATTRIBUTION.md](docs/ATTRIBUTION.md)
 
 ## Project Structure
 
@@ -50,16 +69,16 @@ These keyboards shortcuts are configurable in `edge://extensions/shortcuts`
 
 - `background.js`: Extension background script
   - Listens for keyboard shortcuts
-  - Communicates with native host
+  - Sends one-shot requests to the native host
   - Manages tab group operations
 
-- `ahk-script/`: (Optional) AHK script for mapping middle button click over a tab group to a keyboard shortcut
+- `ahk-script/`: Optional AutoHotkey helper for mapping middle click over a tab group to a keyboard shortcut
 
 ## Notes
 
 This extension relies on specific, observed behaviors of the browser that may change in future updates. This makes it potentially fragile. Key heuristics used, particularly for hover detection, are:
 
-1. **Locating Title Bar:** The program assumse that the top `VERTICAL_THRESHOLD` pixels of the window belongs to title bar. It might require adjustment based on your scaling factor or other specific UI configurations. By seting environment variable `TABGROUP_HOVER_DETECTOR_VERBOSE`, the program will save logs and screenshots of the tab bar to disk for debugging.
+1. **Locating Title Bar:** The detector assumes that the top `VERTICAL_THRESHOLD` pixels of the window belong to the title bar. It might require adjustment based on scaling factor or other UI-specific configurations. Setting `TABGROUP_HOVER_DETECTOR_VERBOSE=1` writes logs and screenshots to `%LOCALAPPDATA%\TabGroupShortcut\`.
 
 2. **Identifying the Active Edge Window:** When hovering over a collapsed tab group, Edge may focus a pop-up/flyout window with an empty title. The detector resolves the real browser window using Win32 window handles (`WindowFromPoint`, foreground window, owner/root-owner chain), then falls back to the browser window under the cursor.
 

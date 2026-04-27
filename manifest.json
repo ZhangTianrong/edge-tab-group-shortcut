@@ -3,7 +3,8 @@
   "name": "TabGroup Keyboard Shortcuts",
   "version": "1.0",
   "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAxB7r/ZbylVj76MWftSOUQBMxB/3R7HD+KAYiv+EbEREEpmqVQl1vKvH8Ny/8bEgYL8MfkuEbKA1mLcfCycjOAE7TauNOBdDprw95M4TUHK85CRjClRjZTokmhtk7eJTML/TIfYng3tz4O6Pb+N6VLR1C+OnD9vWRDDq7Nq08qZfvsOvCTlmPPh3ZB+Bsz1+E/tt8+CtOowWTVmHjiztHxPGYc/wtI8JN2jvytZhEbkuFjVcq6k3TwhfdXXLjQhMsrWfsVJ/W6GJKn77V6RHDfPmSZTagR4VAaHPpUlkRwi8vQrroEhueyazLFdJ+gu9kHEDMskEDaVEZ6cDD18CCGQIDAQAB",
-  "description": "Keyboard shortcuts for managing Chrome/Edge tab groups - close group or keep only the hovered group",
+  "description": "Windows-only hovered tab-group shortcuts for Edge. Requires a separate native companion install.",
+  "homepage_url": "https://github.com/ZhangTianrong/edge-tab-group-shortcut",
   "permissions": [
     "tabs",
     "tabGroups",
@@ -15,6 +16,9 @@
   "icons": {
     "48": "icon48.png",
     "128": "icon128.png"
+  },
+  "action": {
+    "default_title": "TabGroup Shortcut Help"
   },
   "commands": {
     "close-group-tabs": {
